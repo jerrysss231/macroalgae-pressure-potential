@@ -1,19 +1,93 @@
 """Plot trait-selection and functional-substitution summaries."""
-import numpy as np
-import pandas as pd
+
 import matplotlib.pyplot as plt
+import pandas as pd
+
 from macroalgae_repro.paths import ProjectPaths
-from macroalgae_repro.plotting import set_publication_style,panel_label,save_figure
-P=ProjectPaths.from_env(); D=P.output_dir/"trait_constraint_analysis"; OUT=P.output_dir/"manuscript_figures"
+from macroalgae_repro.plotting import panel_label, save_figure, set_publication_style
+
+PATHS = ProjectPaths.from_env()
+TRAIT_DIR = PATHS.output_dir / "trait_constraint_analysis"
+OUT_DIR = PATHS.output_dir / "manuscript_figures"
+
+
 def main():
-    set_publication_style(); traits=pd.read_csv(D/"specific_trait_selection_models.csv"); nested=pd.read_csv(D/"nested_constraint_loss_models.csv"); blocks=pd.read_csv(D/"province_block_trait_metrics.csv")
-    fig,axes=plt.subplots(2,2,figsize=(7.2,5.2)); a,b,c,d=axes.ravel()
-    x=traits[traits.selection_type.eq("constrained")].pivot_table(index="trait",columns="scenario",values="trait_added_r2",aggfunc="mean"); im=a.imshow(x.to_numpy(),aspect="auto"); a.set_yticks(range(len(x))); a.set_yticklabels([z.replace('_',' ') for z in x.index]); a.set_xticks(range(len(x.columns))); a.set_xticklabels(x.columns,rotation=30,ha="right"); a.set_title("Trait-specific selection signal"); fig.colorbar(im,ax=a,label="Added R²")
-    n=nested[nested.functional_dimension.eq("overall")]; forplot=n[n.model_step.ne("M0")]
-    for comp,g in forplot.groupby("loss_component"): b.plot(g.model_step,g.delta_r2,marker="o",label=comp.replace('_',' '))
-    b.axhline(0,lw=.7,c="0.5"); b.tick_params(axis="x",rotation=25); b.set_ylabel("ΔR²"); b.set_title("Nested functional models"); b.legend(frameon=False)
-    q=blocks.groupby("province_key",as_index=False).agg(rao_q=("rao_q","first"),gap=("mean_trait_gap","mean"),exact=("exact_match_share","mean")); c.scatter(q.rao_q,q.gap,s=10,alpha=.65); c.set_xlabel("Rao's Q"); c.set_ylabel("Mean trait-substitution gap"); c.set_title("Functional breadth and substitution")
-    d.scatter(q.rao_q,100*q.exact,s=10,alpha=.65); d.set_xlabel("Rao's Q"); d.set_ylabel("Exact-match share (%)"); d.set_title("Functional breadth and exact matches")
-    for ax,label in zip(axes.ravel(),"ABCD"): panel_label(ax,label)
-    fig.tight_layout(); save_figure(fig,OUT/"trait_and_functional_results")
-if __name__=="__main__": main()
+    set_publication_style()
+
+    trait_models = pd.read_csv(TRAIT_DIR / "specific_trait_selection_models.csv")
+    nested_models = pd.read_csv(TRAIT_DIR / "nested_constraint_loss_models.csv")
+    block_metrics = pd.read_csv(TRAIT_DIR / "province_block_trait_metrics.csv")
+
+    fig, axes = plt.subplots(2, 2, figsize=(7.2, 5.2))
+    ax_trait, ax_nested, ax_gap, ax_match = axes.ravel()
+
+    constrained = trait_models[trait_models["selection_type"].eq("constrained")]
+    trait_matrix = constrained.pivot_table(
+        index="trait",
+        columns="scenario",
+        values="trait_added_r2",
+        aggfunc="mean",
+    )
+    image = ax_trait.imshow(trait_matrix.to_numpy(), aspect="auto")
+    ax_trait.set_yticks(range(len(trait_matrix)))
+    ax_trait.set_yticklabels(
+        [trait.replace("_", " ") for trait in trait_matrix.index]
+    )
+    ax_trait.set_xticks(range(len(trait_matrix.columns)))
+    ax_trait.set_xticklabels(
+        trait_matrix.columns,
+        rotation=30,
+        ha="right",
+    )
+    ax_trait.set_title("Trait-specific selection signal")
+    fig.colorbar(image, ax=ax_trait, label="Added R²")
+
+    overall = nested_models[nested_models["functional_dimension"].eq("overall")]
+    overall = overall[overall["model_step"].ne("M0")]
+    for component, group in overall.groupby("loss_component", observed=True):
+        ax_nested.plot(
+            group["model_step"],
+            group["delta_r2"],
+            marker="o",
+            label=component.replace("_", " "),
+        )
+    ax_nested.axhline(0, linewidth=0.7, color="0.5")
+    ax_nested.tick_params(axis="x", rotation=25)
+    ax_nested.set_ylabel("ΔR²")
+    ax_nested.set_title("Nested functional models")
+    ax_nested.legend(frameon=False)
+
+    province_summary = block_metrics.groupby("province_key", as_index=False).agg(
+        rao_q=("rao_q", "first"),
+        gap=("mean_trait_gap", "mean"),
+        exact=("exact_match_share", "mean"),
+    )
+    ax_gap.scatter(
+        province_summary["rao_q"],
+        province_summary["gap"],
+        s=10,
+        alpha=0.65,
+    )
+    ax_gap.set_xlabel("Rao's Q")
+    ax_gap.set_ylabel("Mean trait-substitution gap")
+    ax_gap.set_title("Functional breadth and substitution")
+
+    ax_match.scatter(
+        province_summary["rao_q"],
+        100 * province_summary["exact"],
+        s=10,
+        alpha=0.65,
+    )
+    ax_match.set_xlabel("Rao's Q")
+    ax_match.set_ylabel("Exact-match share (%)")
+    ax_match.set_title("Functional breadth and exact matches")
+
+    for ax, label in zip(axes.ravel(), "ABCD"):
+        panel_label(ax, label)
+
+    fig.tight_layout()
+    save_figure(fig, OUT_DIR / "trait_and_functional_results")
+
+
+if __name__ == "__main__":
+    main()
