@@ -20,11 +20,45 @@ PHOTOPERIOD_H = 12.0
 
 
 def load_scenario(scenario: str, template, light, depth) -> pd.DataFrame:
-    no3 = clean_values(open_2d(PATHS.environment(scenario, "no3"), ("no3", "nitrate"), template=template).values, 0)
-    po4 = clean_values(open_2d(PATHS.environment(scenario, "po4"), ("po4", "phosphate"), template=template).values, 0)
-    ph = clean_values(open_2d(PATHS.environment(scenario, "ph"), ("ph",), template=template).values, 6.0, 9.5)
-    salinity = clean_values(open_2d(PATHS.environment(scenario, "salinity"), ("so", "salinity"), template=template).values, 0.0, 45.0)
-    temperature = clean_values(open_2d(PATHS.environment(scenario, "temperature"), ("thetao", "temperature", "temp"), template=template).values, -3.0, 45.0)
+    no3 = clean_values(
+        open_2d(
+            PATHS.environment(scenario, "no3"),
+            ("no3", "nitrate"),
+            template=template,
+        ).values,
+        0,
+    )
+    po4 = clean_values(
+        open_2d(
+            PATHS.environment(scenario, "po4"),
+            ("po4", "phosphate"),
+            template=template,
+        ).values,
+        0,
+    )
+    ph = clean_values(
+        open_2d(PATHS.environment(scenario, "ph"), ("ph",), template=template).values,
+        6.0,
+        9.5,
+    )
+    salinity = clean_values(
+        open_2d(
+            PATHS.environment(scenario, "salinity"),
+            ("so", "salinity"),
+            template=template,
+        ).values,
+        0.0,
+        45.0,
+    )
+    temperature = clean_values(
+        open_2d(
+            PATHS.environment(scenario, "temperature"),
+            ("thetao", "temperature", "temp"),
+            template=template,
+        ).values,
+        -3.0,
+        45.0,
+    )
     light_values = clean_values(light.values, 0)
     valid = (
         np.isfinite(no3)
@@ -80,13 +114,20 @@ def main() -> None:
         scenario: frames[scenario].set_index(["_lon", "_lat"]).reindex(common)
         for scenario in SCENARIOS
     }
-    out = pd.DataFrame({"lon": aligned["baseline"]["lon"], "lat": aligned["baseline"]["lat"]}).reset_index(drop=True)
+    out = pd.DataFrame(
+        {
+            "lon": aligned["baseline"]["lon"],
+            "lat": aligned["baseline"]["lat"],
+        }
+    ).reset_index(drop=True)
     for scenario in SCENARIOS:
         for driver in DRIVERS:
             out[f"{driver}_{scenario}"] = aligned[scenario][driver].to_numpy(float)
     for scenario in FUTURES:
         for driver in DRIVERS:
-            out[f"delta_{driver}_{scenario}"] = out[f"{driver}_{scenario}"] - out[f"{driver}_baseline"]
+            out[f"delta_{driver}_{scenario}"] = (
+                out[f"{driver}_{scenario}"] - out[f"{driver}_baseline"]
+            )
 
     out.to_csv(OUT_CSV, index=False, encoding="utf-8-sig")
     print(f"Saved {OUT_CSV} ({len(out):,} common pixels)")
