@@ -59,36 +59,77 @@ def right_continuous_ecdf(values, reference, reference_weight) -> np.ndarray:
 
 
 def load_common_pixels():
+    """Load the four scenarios and freeze nutrient ECDFs from the full baseline domain."""
     frames, indexes = {}, {}
+    references = {}
+
     for scenario in SCENARIOS:
         path = OUTPUT_DIR / f"potential_pixels_{scenario}_depth50m_025deg.csv"
         frame = read_csv(path)
         required = ["lon", "lat", "NO3_mmol_m3", "PO4_mmol_m3", "meow_province"]
         if scenario == "baseline":
             required += ["w_no3", "w_po4"]
-        missing = [c for c in required if c not in frame]
+        missing = [column for column in required if column not in frame]
         if missing:
             raise ValueError(f"{path.name} missing columns: {missing}")
+
         frame["_row"] = np.arange(len(frame), dtype=np.int64)
-        frame["_lon"] = pd.to_numeric(frame["lon"], errors="coerce").round(6)
-        frame["_lat"] = pd.to_numeric(frame["lat"], errors="coerce").round(6)
+        numeric = ["lon", "lat", "NO3_mmol_m3", "PO4_mmol_m3"]
+        if scenario == "baseline":
+            numeric += ["w_no3", "w_po4"]
+        for column in numeric:
+            frame[column] = pd.to_numeric(frame[column], errors="coerce")
+
+        frame = frame.dropna(subset=["lon", "lat"]).copy()
+        frame["_lon"] = frame["lon"].round(6)
+        frame["_lat"] = frame["lat"].round(6)
         if frame.duplicated(["_lon", "_lat"]).any():
             raise ValueError(f"Duplicate coordinates in {path.name}")
+
+        if scenario == "baseline":
+            reference_weight = area_weight(frame["lat"])
+            for nutrient in ("NO3", "PO4"):
+                column = f"{nutrient}_mmol_m3"
+                valid = (
+                    np.isfinite(frame[column].to_numpy(float))
+                    & np.isfinite(reference_weight)
+                    & (reference_weight > 0)
+                )
+                references[nutrient] = (
+                    frame.loc[valid, column].to_numpy(float),
+                    np.asarray(reference_weight[valid], float),
+                )
+
         frames[scenario] = frame
         indexes[scenario] = pd.MultiIndex.from_frame(frame[["_lon", "_lat"]])
+
+    if any(nutrient not in references for nutrient in ("NO3", "PO4")):
+        raise RuntimeError("Failed to build baseline nutrient references")
+    if any(not references[nutrient][0].size for nutrient in ("NO3", "PO4")):
+        raise RuntimeError("Baseline nutrient reference is empty")
 
     common = indexes["baseline"]
     for scenario in FUTURES:
         common = common.intersection(indexes[scenario], sort=False)
-    common = pd.MultiIndex.from_frame(common.to_frame(index=False).sort_values(["_lon", "_lat"]))
+    common = pd.MultiIndex.from_frame(
+        common.to_frame(index=False).sort_values(["_lon", "_lat"], kind="mergesort")
+    )
     for scenario in SCENARIOS:
-        frames[scenario] = frames[scenario].set_index(["_lon", "_lat"]).reindex(common).reset_index(drop=True)
-    return frames
+        frames[scenario] = (
+            frames[scenario]
+            .set_index(["_lon", "_lat"])
+            .reindex(common)
+            .reset_index(drop=True)
+        )
+
+    return frames, references
 
 
 def allowed_sets() -> dict[str, set[str]]:
     occurrence = read_csv(PATHS.meow_occurrence_summary)
-    occurrence["occurrence_count"] = pd.to_numeric(occurrence["occurrence_count"], errors="coerce").fillna(0)
+    occurrence["occurrence_count"] = pd.to_numeric(
+        occurrence["occurrence_count"], errors="coerce"
+    ).fillna(0)
     occurrence = occurrence[occurrence["occurrence_count"] >= MEOW_MIN].copy()
     occurrence["species"] = occurrence["accepted_name"].map(lambda x: clean(x).lower())
     occurrence["province"] = occurrence["meow_province"].map(lambda x: clean(x).lower())
@@ -105,7 +146,10 @@ def build_allowed_mask(species: pd.DataFrame, provinces) -> np.ndarray:
     allowed = allowed_sets()
     provinces = np.array([clean(x).lower() for x in provinces], dtype=object)
     return np.vstack(
-        [np.isin(provinces, tuple(allowed.get(clean(name).lower(), ()))) for name in species["display_name"]]
+        [
+            np.isin(provinces, tuple(allowed.get(clean(name).lower(), ())))
+            for name in species["display_name"]
+        ]
     )
 
 
@@ -143,7 +187,7 @@ def safe_ratio(numerator, denominator) -> np.ndarray:
     return out
 
 
-def calculate(frames):
+def calculate(frames, references):
     species = load_species()
     base = frames["baseline"]
     w_no3 = pd.to_numeric(base["w_no3"], errors="coerce").to_numpy("float32")
@@ -153,13 +197,15 @@ def calculate(frames):
 
     base_province = base["meow_province"].map(clean).reset_index(drop=True)
     for scenario in FUTURES:
-        if not base_province.equals(frames[scenario]["meow_province"].map(clean).reset_index(drop=True)):
+        if not base_province.equals(
+            frames[scenario]["meow_province"].map(clean).reset_index(drop=True)
+        ):
             raise ValueError(f"MEOW province assignments differ under {scenario}")
     allow = build_allowed_mask(species, base_province)
 
     weights = area_weight(pd.to_numeric(base["lat"], errors="coerce"))
-    no3_ref = pd.to_numeric(base["NO3_mmol_m3"], errors="coerce").to_numpy(float)
-    po4_ref = pd.to_numeric(base["PO4_mmol_m3"], errors="coerce").to_numpy(float)
+    no3_ref, no3_ref_weight = references["NO3"]
+    po4_ref, po4_ref_weight = references["PO4"]
     results = {}
 
     for scenario in SCENARIOS:
@@ -173,8 +219,8 @@ def calculate(frames):
         if np.any(np.isfinite(loss) & (loss < 0)):
             raise RuntimeError(f"Negative constraint loss under {scenario}")
         pressure = (
-            right_continuous_ecdf(frame["NO3_mmol_m3"], no3_ref, weights) * w_no3
-            + right_continuous_ecdf(frame["PO4_mmol_m3"], po4_ref, weights) * w_po4
+            right_continuous_ecdf(frame["NO3_mmol_m3"], no3_ref, no3_ref_weight) * w_no3
+            + right_continuous_ecdf(frame["PO4_mmol_m3"], po4_ref, po4_ref_weight) * w_po4
         ).astype("float32")
         results[scenario] = {
             "unconstrained_potential": unconstrained,
@@ -187,20 +233,50 @@ def calculate(frames):
     return results, weights, w_no3, w_po4
 
 
-def common_valid(results, weights):
-    valid = np.isfinite(weights) & (weights > 0)
+def valid_masks(results, weights):
+    """Build cross-scenario valid domains separately for each derived metric."""
+    base = np.isfinite(weights) & (weights > 0)
+    masks = {}
+    for metric in (
+        "unconstrained_potential",
+        "constrained_potential",
+        "constraint_loss",
+        "constraint_ratio",
+        "nutrient_pressure",
+    ):
+        valid = base.copy()
+        for scenario in SCENARIOS:
+            valid &= np.isfinite(results[scenario][metric])
+        masks[metric] = valid
+
+    mismatch = base.copy()
     for scenario in SCENARIOS:
-        valid &= np.isfinite(results[scenario]["nutrient_pressure"])
-        valid &= np.isfinite(results[scenario]["constrained_potential"])
-    return valid
+        mismatch &= np.isfinite(results[scenario]["nutrient_pressure"])
+        mismatch &= np.isfinite(results[scenario]["constrained_potential"])
+    masks["mismatch"] = mismatch
+    return masks
 
 
 def add_mismatch(results, valid, weights):
     thresholds = []
     for q in QUANTILES:
-        pressure_threshold = weighted_quantile(results["baseline"]["nutrient_pressure"][valid], q, weights[valid])
-        potential_threshold = weighted_quantile(results["baseline"]["constrained_potential"][valid], q, weights[valid])
-        thresholds.append({"quantile": q, "nutrient_pressure_threshold": pressure_threshold, "constrained_potential_threshold": potential_threshold})
+        pressure_threshold = weighted_quantile(
+            results["baseline"]["nutrient_pressure"][valid],
+            q,
+            weights[valid],
+        )
+        potential_threshold = weighted_quantile(
+            results["baseline"]["constrained_potential"][valid],
+            q,
+            weights[valid],
+        )
+        thresholds.append(
+            {
+                "quantile": q,
+                "nutrient_pressure_threshold": pressure_threshold,
+                "constrained_potential_threshold": potential_threshold,
+            }
+        )
         key = f"mismatch_q{int(q * 100)}"
         for scenario in SCENARIOS:
             results[scenario][key] = (
@@ -215,7 +291,7 @@ def add_mismatch(results, valid, weights):
     pd.DataFrame(thresholds).to_csv(RESULT_DIR / "baseline_reference_thresholds.csv", index=False)
 
 
-def save_outputs(frames, results, weights, w_no3, w_po4, valid):
+def save_outputs(frames, results, weights, w_no3, w_po4, masks):
     PIXEL_DIR.mkdir(parents=True, exist_ok=True)
     summary, transitions = [], []
     for scenario in SCENARIOS:
@@ -231,21 +307,37 @@ def save_outputs(frames, results, weights, w_no3, w_po4, valid):
                 "w_no3_base": w_no3,
                 "w_po4_base": w_po4,
                 **{k: v for k, v in results[scenario].items()},
-                "valid_constrained_potential": valid,
-                "valid_constraint_loss": valid,
-                "valid_constraint_ratio": valid,
-                "valid_nutrient_pressure": valid,
-                "valid_mismatch": valid,
+                "valid_constrained_potential": masks["constrained_potential"],
+                "valid_constraint_loss": masks["constraint_loss"],
+                "valid_constraint_ratio": masks["constraint_ratio"],
+                "valid_nutrient_pressure": masks["nutrient_pressure"],
+                "valid_mismatch": masks["mismatch"],
             }
         )
         out.to_csv(PIXEL_DIR / f"recalculated_{scenario}.csv", index=False, encoding="utf-8-sig")
         summary.append(
             {
                 "scenario": scenario,
-                "constrained_potential_mean": weighted_mean(results[scenario]["constrained_potential"], weights, valid),
-                "constraint_loss_mean": weighted_mean(results[scenario]["constraint_loss"], weights, valid),
-                "mismatch_q75_fraction": weighted_fraction(results[scenario]["mismatch_q75"].astype(bool), valid, weights),
-                "stable_mismatch_fraction": weighted_fraction(results[scenario]["stable_mismatch"].astype(bool), valid, weights),
+                "constrained_potential_mean": weighted_mean(
+                    results[scenario]["constrained_potential"],
+                    weights,
+                    masks["constrained_potential"],
+                ),
+                "constraint_loss_mean": weighted_mean(
+                    results[scenario]["constraint_loss"],
+                    weights,
+                    masks["constraint_loss"],
+                ),
+                "mismatch_q75_fraction": weighted_fraction(
+                    results[scenario]["mismatch_q75"].astype(bool),
+                    masks["mismatch"],
+                    weights,
+                ),
+                "stable_mismatch_fraction": weighted_fraction(
+                    results[scenario]["stable_mismatch"].astype(bool),
+                    masks["mismatch"],
+                    weights,
+                ),
             }
         )
 
@@ -254,9 +346,27 @@ def save_outputs(frames, results, weights, w_no3, w_po4, valid):
         future = results[scenario]["mismatch_q75"].astype(bool)
         transitions.extend(
             [
-                {"scenario": scenario, "class": "persistent", "area_fraction": weighted_fraction(baseline & future, valid, weights)},
-                {"scenario": scenario, "class": "emerging", "area_fraction": weighted_fraction(~baseline & future, valid, weights)},
-                {"scenario": scenario, "class": "recovery", "area_fraction": weighted_fraction(baseline & ~future, valid, weights)},
+                {
+                    "scenario": scenario,
+                    "class": "persistent",
+                    "area_fraction": weighted_fraction(
+                        baseline & future, masks["mismatch"], weights
+                    ),
+                },
+                {
+                    "scenario": scenario,
+                    "class": "emerging",
+                    "area_fraction": weighted_fraction(
+                        ~baseline & future, masks["mismatch"], weights
+                    ),
+                },
+                {
+                    "scenario": scenario,
+                    "class": "recovery",
+                    "area_fraction": weighted_fraction(
+                        baseline & ~future, masks["mismatch"], weights
+                    ),
+                },
             ]
         )
     pd.DataFrame(summary).to_csv(RESULT_DIR / "scenario_specific_delta_summary.csv", index=False)
@@ -268,24 +378,36 @@ def save_outputs(frames, results, weights, w_no3, w_po4, valid):
         increase = np.all(delta > 0, axis=0)
         decrease = np.all(delta < 0, axis=0)
         sensitive = ~(increase | decrease)
-        for label, flag in (("consistent_increase", increase), ("consistent_decrease", decrease), ("scenario_sensitive", sensitive)):
-            consistency.append({"metric": metric, "class": label, "area_fraction": weighted_fraction(flag, valid, weights)})
-    pd.DataFrame(consistency).to_csv(RESULT_DIR / "cross_scenario_consistency_summary.csv", index=False)
+        for label, flag in (
+            ("consistent_increase", increase),
+            ("consistent_decrease", decrease),
+            ("scenario_sensitive", sensitive),
+        ):
+            consistency.append(
+                {
+                    "metric": metric,
+                    "class": label,
+                    "area_fraction": weighted_fraction(flag, masks[metric], weights),
+                }
+            )
+    pd.DataFrame(consistency).to_csv(
+        RESULT_DIR / "cross_scenario_consistency_summary.csv", index=False
+    )
 
 
 def main() -> None:
     RESULT_DIR.mkdir(parents=True, exist_ok=True)
-    frames = load_common_pixels()
-    results, weights, w_no3, w_po4 = calculate(frames)
-    valid = common_valid(results, weights)
-    add_mismatch(results, valid, weights)
-    save_outputs(frames, results, weights, w_no3, w_po4, valid)
+    frames, references = load_common_pixels()
+    results, weights, w_no3, w_po4 = calculate(frames, references)
+    masks = valid_masks(results, weights)
+    add_mismatch(results, masks["mismatch"], weights)
+    save_outputs(frames, results, weights, w_no3, w_po4, masks)
     manifest = {
         "pressure_reference": "area-weighted right-continuous baseline ECDF",
         "potential_weights": "baseline Redfield-normalized local weights frozen across scenarios",
         "mismatch_quantiles": list(QUANTILES),
         "area_weight": "cos(latitude)",
-        "common_domain_pixels": int(valid.sum()),
+        "common_domain_pixels": int(masks["mismatch"].sum()),
     }
     (RESULT_DIR / "run_manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
