@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import os
 import random
+import sys
+from importlib.metadata import PackageNotFoundError, version
 
 os.environ.setdefault("SCIPY_ARRAY_API", "1")
 
@@ -39,6 +41,7 @@ SEED = 42
 IQR_MULTIPLIER = 3.0
 PREDICT_BATCH_SIZE = 10_000
 DEVICE = "cuda" if torch is not None and torch.cuda.is_available() else "cpu"
+EXPECTED_TABPFN_VERSION = "8.0.0"
 
 TAXONOMY = ["Phylum", "Order", "Family", "Genus", "Scientific name"]
 RAW_ENVIRONMENT = {
@@ -72,6 +75,31 @@ NUMERIC = [
 ]
 CATEGORICAL = TAXONOMY + ["Data category", "nutrient_type"]
 FEATURES = NUMERIC + CATEGORICAL
+
+
+def package_version(package: str) -> str:
+    try:
+        return version(package)
+    except PackageNotFoundError:
+        return "not-installed"
+
+
+def software_versions() -> dict[str, str]:
+    return {
+        "python": sys.version.split()[0],
+        "tabpfn": package_version("tabpfn"),
+        "torch": package_version("torch"),
+        "scikit_learn": package_version("scikit-learn"),
+    }
+
+
+def validate_tabpfn_version() -> None:
+    installed = package_version("tabpfn")
+    if installed != EXPECTED_TABPFN_VERSION:
+        raise RuntimeError(
+            "This analysis is frozen to TabPFN "
+            f"{EXPECTED_TABPFN_VERSION}; found {installed}."
+        )
 
 
 def set_seed() -> None:
@@ -318,6 +346,7 @@ def fit_final_model(data: pd.DataFrame, cv_metrics: pd.DataFrame) -> None:
             "nutrients_for_training": list(NUTRIENTS),
             "cv_folds": N_SPLITS,
             "random_state": SEED,
+            "software_versions": software_versions(),
             "cv_metrics": cv_metrics.to_dict(orient="records"),
         },
         BUNDLE_PATH,
@@ -325,6 +354,7 @@ def fit_final_model(data: pd.DataFrame, cv_metrics: pd.DataFrame) -> None:
 
 
 def main() -> None:
+    validate_tabpfn_version()
     MODEL_DIR.mkdir(parents=True, exist_ok=True)
     data = remove_upper_outliers(build_training_table())
     data.to_csv(MODEL_DIR / "long_training_after_outlier.csv", index=False, encoding="utf-8-sig")
@@ -339,6 +369,7 @@ def main() -> None:
         "folds": N_SPLITS,
         "outlier_rule": "endpoint-specific upper tail > Q3 + 3*IQR",
         "nrmse_definition": "100 * RMSE / observed range",
+        "software_versions": software_versions(),
         "model_bundle": str(BUNDLE_PATH),
     }
     (MODEL_DIR / "model_training_summary.json").write_text(
