@@ -6,7 +6,7 @@ The workflow separates three quantities that should not be conflated: physiologi
 
 ## Repository design
 
-This is a publication-oriented refactor of the analysis workflow rather than a dump of development scripts. Machine-specific paths, temporary audit code, obsolete outputs and duplicated exploratory variants have been removed. Scientific definitions, frozen thresholds, model settings and spatial inference rules used by the manuscript are retained.
+This is a publication-oriented refactor of the frozen analysis rather than a dump of development scripts. Machine-specific paths, temporary debugging code, obsolete outputs and duplicated exploratory variants have been removed. Scientific definitions, frozen thresholds, model settings and spatial inference rules used by the manuscript are retained.
 
 The numbered scripts form the analysis pipeline:
 
@@ -17,14 +17,14 @@ The numbered scripts form the analysis pipeline:
 | 03 | `03_build_pressure_potential_mismatch.py` | Calculate unconstrained and biogeographically constrained potential, nutrient pressure, mismatch and threshold robustness. |
 | 04 | `04_audit_environmental_space.py` | Quantify PCA–pairwise convex-hull environmental-space coverage. |
 | 05 | `05_build_environment_change_matrix.py` | Assemble future-minus-baseline environmental-change fields. |
-| 06 | `06_environmental_attribution.py` | Run Shapley attribution, partial associations and spatial robustness analyses. |
+| 06 | `06_environmental_attribution.py` | Run area-weighted Shapley attribution, partial associations and spatial-block uncertainty analyses. |
 | 07 | `07_ecological_heterogeneity.py` | Analyse MEOW, Redfield-relative nutrient-regime and species-pool heterogeneity. |
 | 08 | `08_prepare_traits.py` | Clean directly documented traits and construct the functional-distance space. |
 | 09 | `09_trait_constraint_analysis.py` | Analyse trait selection, Rao's Q, functional substitution and constraint loss. |
-| 10 | `10_aggregate_eez.py` | Aggregate to 200-nautical-mile EEZs and run spatial-block inference. |
-| 11–14 | plotting scripts | Reproduce the main global, trait, EEZ and baseline-mismatch visualizations. |
+| 10 | `10_aggregate_eez.py` | Aggregate to ordinary 200-nautical-mile EEZs and run spatial-block inference. |
+| 11–14 | plotting scripts | Produce compact publication-style visual summaries from finalized analysis tables without redefining analytical metrics. |
 
-Detailed stage dependencies are described in [`docs/workflow.md`](docs/workflow.md).
+Detailed stage dependencies and frozen definitions are described in [`docs/workflow.md`](docs/workflow.md).
 
 ## Installation
 
@@ -86,10 +86,12 @@ The public code preserves the manuscript analysis choices. In particular:
 - NO3 and PO4 predictions are combined with local baseline Redfield-normalized nutrient weights, which are held fixed in future scenarios.
 - Unconstrained potential is the best candidate across the full modelled species set. Constrained potential is the best candidate present in the regional MEOW species pool. The unconstrained optimum is a counterfactual benchmark, not a recommendation to introduce non-local species.
 - Regional availability requires at least three occurrence records within a MEOW province and is held fixed across future scenarios.
-- Nutrient pressure is baseline-referenced and area-weighted. Q75 mismatch is defined as high nutrient pressure with constrained potential below the corresponding baseline Q75 potential threshold. Q70, Q75, Q80 and Q85 are used for threshold robustness.
+- Nutrient pressure uses area-weighted, right-continuous baseline nutrient reference distributions. Those references are frozen from the complete valid baseline projection table before the four-scenario spatial intersection.
+- Q75 mismatch is defined as nutrient pressure at or above its baseline Q75 threshold with constrained potential below its baseline Q75 threshold. Q70, Q75, Q80 and Q85 are used for threshold robustness.
 - Environmental attribution uses area-weighted models, Shapley decomposition and partial correlations; these are interpreted as spatial associations rather than causal effects.
-- Trait inference uses directly documented traits without imputation. The primary functional analysis requires at least 80% trait coverage of the regional candidate pool.
-- EEZ inference uses 5° spatial blocks and is restricted to EEZs with at least 100 valid pixels and five independent blocks. Directional trajectory classes are kept separate from formal statistical support.
+- Trait inference uses directly documented traits without imputation. All biological species remain in opportunity and winner calculations, while functional inference uses the direct-trait complete-case species set and requires at least 80% trait-resolved coverage of the regional candidate pool.
+- EEZ aggregation retains ordinary `POL_TYPE == "200NM"` features, applies latitude-adjusted geodesic overlap weights and does not renormalize overlapping jurisdictions.
+- EEZ formal inference uses 5° spatial blocks and is restricted to EEZs with at least 100 valid pixels and five independent blocks. Directional trajectory classes are kept separate from formal statistical support.
 
 Annualized removal potential is a standardized continuous-operation, per-biomass quantity. It is **not** realized annual field removal.
 
@@ -97,9 +99,15 @@ Annualized removal potential is a standardized continuous-operation, per-biomass
 
 The workflow uses the global macroalgal nutrient-removal dataset, Bio-ORACLE v3, OBIS/WoRMS-derived occurrence summaries, Marine Ecoregions of the World, AlgaeTraits, Marine Regions EEZ v12, World Bank World Development Indicators and Natural Earth basemap layers. Please cite the original data providers when reusing these inputs.
 
+## Validation of the public refactor
+
+The publication refactor is checked for Python syntax and AST validity, consistent line-length formatting, and removal of machine-specific paths and obsolete development identifiers. The uploaded analytical files are byte-matched against the locally checked clean versions using Git blob hashes.
+
+A complete numerical rerun is not performed as part of these repository checks because the large external environmental, occurrence and jurisdictional datasets are not redistributed here. Reproducing numerical outputs therefore requires arranging the external inputs described in `docs/data_layout.md` and running the numbered workflow.
+
 ## Reproducibility note
 
-The publication repository reorganizes the frozen analysis into a linear, portable workflow. In particular, species-level global projection is separated from the authoritative pressure–potential calculation so that model prediction, biogeographic filtering and mismatch definitions remain auditable as distinct stages. Numerical outputs are not committed because the underlying environmental and geospatial inputs are large and, in several cases, externally licensed.
+The publication repository reorganizes the frozen analysis into a linear, portable workflow. Species-level global prediction is separated from the authoritative pressure–potential calculation so that model prediction, biogeographic filtering and mismatch definitions remain auditable as distinct stages. Numerical outputs are not committed because the underlying environmental and geospatial inputs are large and, in several cases, externally licensed.
 
 ## Citation
 
