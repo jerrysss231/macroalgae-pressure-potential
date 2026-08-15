@@ -160,7 +160,10 @@ def infer_province_column(frame: gpd.GeoDataFrame) -> str:
                 return column
     for column in columns:
         low = column.lower()
-        if ("province" in low or "prov" in low) and not any(x in low for x in ("id", "code", "num")):
+        if (
+            ("province" in low or "prov" in low)
+            and not any(x in low for x in ("id", "code", "num"))
+        ):
             return column
     raise ValueError(f"Cannot identify MEOW province column: {columns}")
 
@@ -199,15 +202,25 @@ def load_allowed_species(species: pd.DataFrame) -> dict[str, set[str]]:
     missing = required.difference(occurrence.columns)
     if missing:
         raise ValueError(f"Occurrence summary missing columns: {sorted(missing)}")
-    occurrence["occurrence_count"] = pd.to_numeric(occurrence["occurrence_count"], errors="coerce").fillna(0)
+    occurrence["occurrence_count"] = pd.to_numeric(
+        occurrence["occurrence_count"], errors="coerce"
+    ).fillna(0)
     occurrence = occurrence[occurrence["occurrence_count"] >= MEOW_OCCURRENCE_MIN].copy()
     occurrence["species_key"] = occurrence["accepted_name"].map(normalize_key)
     occurrence["province_key"] = occurrence["meow_province"].map(normalize_key)
     allowed = occurrence.groupby("species_key")["province_key"].apply(set).to_dict()
 
-    status = species[["species_id", "Scientific name", "meow_match_name", "valid_record_count"]].copy()
-    status["n_allowed_provinces"] = [len(allowed.get(key, set())) for key in species["meow_match_key"]]
-    status.to_csv(OUTPUT_DIR / "candidate_species_meow_status.csv", index=False, encoding="utf-8-sig")
+    status = species[
+        ["species_id", "Scientific name", "meow_match_name", "valid_record_count"]
+    ].copy()
+    status["n_allowed_provinces"] = [
+        len(allowed.get(key, set())) for key in species["meow_match_key"]
+    ]
+    status.to_csv(
+        OUTPUT_DIR / "candidate_species_meow_status.csv",
+        index=False,
+        encoding="utf-8-sig",
+    )
     return allowed
 
 
@@ -238,7 +251,12 @@ def inverse_log1p(pred_log: np.ndarray, smear: float) -> np.ndarray:
     return np.clip(pred, 0, None).astype("float32")
 
 
-def feature_frame(base: pd.DataFrame, species: pd.Series, nutrient: str, concentration) -> pd.DataFrame:
+def feature_frame(
+    base: pd.DataFrame,
+    species: pd.Series,
+    nutrient: str,
+    concentration,
+) -> pd.DataFrame:
     frame = base.copy()
     for column in TAXONOMY_COLS:
         frame[column] = species[column]
@@ -251,8 +269,16 @@ def scenario_environment(scenario: str, template, light, depth, meow_grid):
     no3 = open_2d(PATHS.environment(scenario, "no3"), ("no3", "nitrate"), template=template)
     po4 = open_2d(PATHS.environment(scenario, "po4"), ("po4", "phosphate"), template=template)
     ph = open_2d(PATHS.environment(scenario, "ph"), ("ph",), template=template)
-    salinity = open_2d(PATHS.environment(scenario, "salinity"), ("so", "salinity"), template=template)
-    temperature = open_2d(PATHS.environment(scenario, "temperature"), ("thetao", "temperature", "temp"), template=template)
+    salinity = open_2d(
+        PATHS.environment(scenario, "salinity"),
+        ("so", "salinity"),
+        template=template,
+    )
+    temperature = open_2d(
+        PATHS.environment(scenario, "temperature"),
+        ("thetao", "temperature", "temp"),
+        template=template,
+    )
 
     no3_raw = clean_values(no3.values, 0)
     po4_raw = clean_values(po4.values, 0)
@@ -331,7 +357,9 @@ def main() -> None:
     light = (par * (1_000_000 / (PHOTOPERIOD_H * 3600))).astype("float32")
     terrain = open_2d(PATHS.terrain, ("bathymetry", "bathy", "depth", "terrain"), template=template)
     terrain_values = terrain.values.astype("float32")
-    depth = (-terrain_values if np.nanmedian(terrain_values) < 0 else terrain_values).astype("float32")
+    depth = (
+        -terrain_values if np.nanmedian(terrain_values) < 0 else terrain_values
+    ).astype("float32")
     meow_grid = map_meow_provinces(template, depth)
 
     for scenario in SCENARIOS:
@@ -353,7 +381,12 @@ def main() -> None:
                     cached = np.load(path, mmap_mode="r", allow_pickle=False).reshape(-1)
                     if cached.size == len(pixels):
                         continue
-                features = feature_frame(base.assign(**{"Data category": data_category}), row, nutrient, concentration)
+                features = feature_frame(
+                    base.assign(**{"Data category": data_category}),
+                    row,
+                    nutrient,
+                    concentration,
+                )
                 transformed = np.asarray(preprocessor.transform(features), dtype="float32")
                 prediction = inverse_log1p(predict_batches(model, transformed), smear)
                 np.save(path, prediction, allow_pickle=False)
