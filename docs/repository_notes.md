@@ -18,10 +18,10 @@ Retained explicitly:
 - Duan retransformation;
 - environmental cleaning and spatial-domain rules;
 - species-pool occurrence threshold;
-- baseline-fixed nutrient weights and pressure reference distributions;
+- baseline-fixed nutrient weights and full-baseline pressure reference distributions;
 - frozen Q70–Q85 mismatch thresholds;
 - spatial-block resampling rules;
-- trait-coverage and functional-distance definitions;
-- EEZ aggregation and formal-support criteria.
+- direct-trait complete-case, coverage-gate and functional-distance definitions;
+- 200NM EEZ aggregation, transition metrics and formal-support criteria.
 
 The refactor is intended to make the computational logic easier to inspect, not to create a new analysis.
