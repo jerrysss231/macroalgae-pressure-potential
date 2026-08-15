@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+
+# Large or externally licensed inputs and outputs
+data/
+outputs/
+*.nc
+*.npy
+*.npz
+*.joblib
+*.gpkg
+*.shp
+*.dbf
+*.shx
+*.prj
+
+# Generated figures/tables
+*.png
+*.svg
+*.csv
+*.xlsx
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
