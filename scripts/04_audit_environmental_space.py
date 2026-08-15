@@ -31,11 +31,45 @@ CHUNK = 200_000
 
 
 def projected_environment(scenario: str, template, light, depth) -> pd.DataFrame:
-    no3 = clean_values(open_2d(PATHS.environment(scenario, "no3"), ("no3", "nitrate"), template=template).values, 0)
-    po4 = clean_values(open_2d(PATHS.environment(scenario, "po4"), ("po4", "phosphate"), template=template).values, 0)
-    ph = clean_values(open_2d(PATHS.environment(scenario, "ph"), ("ph",), template=template).values, 6.0, 9.5)
-    salinity = clean_values(open_2d(PATHS.environment(scenario, "salinity"), ("so", "salinity"), template=template).values, 0, 45)
-    temperature = clean_values(open_2d(PATHS.environment(scenario, "temperature"), ("thetao", "temperature", "temp"), template=template).values, -3, 45)
+    no3 = clean_values(
+        open_2d(
+            PATHS.environment(scenario, "no3"),
+            ("no3", "nitrate"),
+            template=template,
+        ).values,
+        0,
+    )
+    po4 = clean_values(
+        open_2d(
+            PATHS.environment(scenario, "po4"),
+            ("po4", "phosphate"),
+            template=template,
+        ).values,
+        0,
+    )
+    ph = clean_values(
+        open_2d(PATHS.environment(scenario, "ph"), ("ph",), template=template).values,
+        6.0,
+        9.5,
+    )
+    salinity = clean_values(
+        open_2d(
+            PATHS.environment(scenario, "salinity"),
+            ("so", "salinity"),
+            template=template,
+        ).values,
+        0,
+        45,
+    )
+    temperature = clean_values(
+        open_2d(
+            PATHS.environment(scenario, "temperature"),
+            ("thetao", "temperature", "temp"),
+            template=template,
+        ).values,
+        -3,
+        45,
+    )
     light_values = clean_values(light.values, 0)
     valid = (
         np.isfinite(no3) & np.isfinite(po4) & np.isfinite(ph)
@@ -59,7 +93,9 @@ def common_environment():
     light = (par * (1_000_000 / (PHOTOPERIOD_H * 3600))).astype("float32")
     terrain = open_2d(PATHS.terrain, ("bathymetry", "bathy", "depth", "terrain"), template=template)
     terrain_values = terrain.values.astype("float32")
-    depth = (-terrain_values if np.nanmedian(terrain_values) < 0 else terrain_values).astype("float32")
+    depth = (
+        -terrain_values if np.nanmedian(terrain_values) < 0 else terrain_values
+    ).astype("float32")
 
     frames, indexes = {}, {}
     for scenario in SCENARIOS:
@@ -71,7 +107,15 @@ def common_environment():
     for scenario in SCENARIOS[1:]:
         common = common.intersection(indexes[scenario], sort=False)
     common = pd.MultiIndex.from_frame(common.to_frame(index=False).sort_values(["_lon", "_lat"]))
-    return {s: frames[s].set_index(["_lon", "_lat"]).reindex(common).reset_index() for s in SCENARIOS}
+    return {
+        scenario: (
+            frames[scenario]
+            .set_index(["_lon", "_lat"])
+            .reindex(common)
+            .reset_index()
+        )
+        for scenario in SCENARIOS
+    }
 
 
 def retained_components(pca: PCA) -> int:
@@ -145,7 +189,17 @@ def endpoint_audit(endpoint: str, training: pd.DataFrame, environments):
                 "area_fraction_lt_0.50": weighted_fraction(cov < 0.50, valid, weight),
             }
         )
-        pixel_rows.append(pd.DataFrame({"endpoint": endpoint, "scenario": scenario, "lon": env["lon"], "lat": env["lat"], "coverage": cov}))
+        pixel_rows.append(
+            pd.DataFrame(
+                {
+                    "endpoint": endpoint,
+                    "scenario": scenario,
+                    "lon": env["lon"],
+                    "lat": env["lat"],
+                    "coverage": cov,
+                }
+            )
+        )
     return rows, pixel_rows
 
 
@@ -159,9 +213,22 @@ def main() -> None:
         summaries.extend(rows)
         pixels.extend(pixel_rows)
     pd.DataFrame(summaries).to_csv(OUT_DIR / "environmental_space_summary.csv", index=False)
-    pd.concat(pixels, ignore_index=True).to_csv(OUT_DIR / "environmental_space_pixel_coverage.csv.gz", index=False, compression="gzip")
-    info = {"method": "training-standardized PCA plus pairwise retained-PC convex-hull coverage", "pca_cumulative_variance_threshold": PCA_VARIANCE, "coverage_use": "audit only; predictions are not filtered"}
-    (OUT_DIR / "environmental_space_run_info.json").write_text(json.dumps(info, indent=2), encoding="utf-8")
+    pd.concat(pixels, ignore_index=True).to_csv(
+        OUT_DIR / "environmental_space_pixel_coverage.csv.gz",
+        index=False,
+        compression="gzip",
+    )
+    info = {
+        "method": (
+            "training-standardized PCA plus pairwise retained-PC "
+            "convex-hull coverage"
+        ),
+        "pca_cumulative_variance_threshold": PCA_VARIANCE,
+        "coverage_use": "audit only; predictions are not filtered",
+    }
+    (OUT_DIR / "environmental_space_run_info.json").write_text(
+        json.dumps(info, indent=2), encoding="utf-8"
+    )
 
 
 if __name__ == "__main__":
