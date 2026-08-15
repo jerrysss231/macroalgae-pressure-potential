@@ -145,7 +145,15 @@ def remove_upper_outliers(data: pd.DataFrame) -> pd.DataFrame:
         upper = q3 + IQR_MULTIPLIER * (q3 - q1)
         drop = data.index.isin(rows) & (data["removal_rate"].to_numpy(float) > upper)
         keep &= ~drop
-        audit.append({"nutrient_type": nutrient, "q1": q1, "q3": q3, "upper": upper, "n_removed": int(drop.sum())})
+        audit.append(
+            {
+                "nutrient_type": nutrient,
+                "q1": q1,
+                "q3": q3,
+                "upper": upper,
+                "n_removed": int(drop.sum()),
+            }
+        )
     pd.DataFrame(audit).to_csv(MODEL_DIR / "outlier_thresholds.csv", index=False)
     return data.loc[keep].reset_index(drop=True)
 
@@ -159,7 +167,13 @@ def preprocessor() -> ColumnTransformer:
                 Pipeline(
                     [
                         ("impute", SimpleImputer(strategy="constant", fill_value="Missing")),
-                        ("encode", OrdinalEncoder(handle_unknown="use_encoded_value", unknown_value=-1)),
+                        (
+                            "encode",
+                            OrdinalEncoder(
+                                handle_unknown="use_encoded_value",
+                                unknown_value=-1,
+                            ),
+                        ),
                     ]
                 ),
                 CATEGORICAL,
@@ -208,7 +222,15 @@ def metrics(observed, predicted) -> dict[str, float]:
 
 def grouped_cross_validation(data: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     splitter = StratifiedGroupKFold(n_splits=N_SPLITS, shuffle=True, random_state=SEED)
-    oof = data[["original_row_id", "Number", "Scientific name", "nutrient_type", "removal_rate"]].copy()
+    oof = data[
+        [
+            "original_row_id",
+            "Number",
+            "Scientific name",
+            "nutrient_type",
+            "removal_rate",
+        ]
+    ].copy()
     oof["fold"] = -1
     oof["predicted_removal_rate"] = np.nan
     oof["fold_smear"] = np.nan
@@ -227,14 +249,39 @@ def grouped_cross_validation(data: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataF
         model.fit(x_train, y[train_idx])
         smear = duan_smear(y[train_idx], predict(model, x_train))
         prediction = backtransform(predict(model, x_valid), smear)
-        oof.loc[valid_idx, ["fold", "predicted_removal_rate", "fold_smear"]] = fold, prediction, smear
+        oof.loc[
+            valid_idx,
+            ["fold", "predicted_removal_rate", "fold_smear"],
+        ] = fold, prediction, smear
         for nutrient in NUTRIENTS:
             mask = data.iloc[valid_idx]["nutrient_type"].eq(nutrient).to_numpy()
-            rows.append({"scope": "fold", "fold": fold, "endpoint": nutrient, **metrics(data.iloc[valid_idx].loc[mask, "removal_rate"], prediction[mask]), "duan_smear": smear})
+            rows.append(
+                {
+                    "scope": "fold",
+                    "fold": fold,
+                    "endpoint": nutrient,
+                    **metrics(
+                        data.iloc[valid_idx].loc[mask, "removal_rate"],
+                        prediction[mask],
+                    ),
+                    "duan_smear": smear,
+                }
+            )
 
     for nutrient in NUTRIENTS:
         subset = oof[oof["nutrient_type"].eq(nutrient)]
-        rows.append({"scope": "overall_oof", "fold": np.nan, "endpoint": nutrient, **metrics(subset["removal_rate"], subset["predicted_removal_rate"]), "duan_smear": np.nan})
+        rows.append(
+            {
+                "scope": "overall_oof",
+                "fold": np.nan,
+                "endpoint": nutrient,
+                **metrics(
+                    subset["removal_rate"],
+                    subset["predicted_removal_rate"],
+                ),
+                "duan_smear": np.nan,
+            }
+        )
     return oof, pd.DataFrame(rows)
 
 
@@ -245,7 +292,10 @@ def training_ranges(data: pd.DataFrame) -> dict[str, dict[str, float]]:
         ranges[column] = {"min": float(values.min()), "max": float(values.max())}
     for nutrient in NUTRIENTS:
         values = data.loc[data["nutrient_type"].eq(nutrient), "initial_concentration"].dropna()
-        ranges[f"initial_concentration_{nutrient}"] = {"min": float(values.min()), "max": float(values.max())}
+        ranges[f"initial_concentration_{nutrient}"] = {
+            "min": float(values.min()),
+            "max": float(values.max()),
+        }
     return ranges
 
 
@@ -291,7 +341,9 @@ def main() -> None:
         "nrmse_definition": "100 * RMSE / observed range",
         "model_bundle": str(BUNDLE_PATH),
     }
-    (MODEL_DIR / "model_training_summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    (MODEL_DIR / "model_training_summary.json").write_text(
+        json.dumps(summary, indent=2), encoding="utf-8"
+    )
     print(cv_metrics[cv_metrics["scope"].eq("overall_oof")].to_string(index=False))
 
 
