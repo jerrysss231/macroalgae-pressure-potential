@@ -12,7 +12,7 @@ The numbered scripts form the analysis pipeline:
 
 | Stage | Script | Purpose |
 |---|---|---|
-| 01 | `01_fit_nutrient_model.py` | Fit and validate the pooled NO3/PO4 TabPFN model with grouped five-fold CV and Duan retransformation. |
+| 01 | `01_fit_nutrient_model.py` | Fit and validate the pooled NO3/PO4 TabPFN 8.0.0 model with grouped five-fold CV and Duan retransformation. |
 | 02 | `02_project_species_rates.py` | Project species-level NO3 and PO4 removal rates to the harmonized 0.25° coastal grid. |
 | 03 | `03_build_pressure_potential_mismatch.py` | Calculate unconstrained and biogeographically constrained potential, nutrient pressure, mismatch and threshold robustness. |
 | 04 | `04_audit_environmental_space.py` | Quantify PCA–pairwise convex-hull environmental-space coverage. |
@@ -79,7 +79,7 @@ Plotting scripts can then be run independently from the finalized analysis table
 
 The public code preserves the manuscript analysis choices. In particular:
 
-- NO3 and PO4 are modelled jointly with a pooled TabPFN regressor on a `log1p` target; retransformation uses a pooled Duan smearing factor.
+- NO3 and PO4 are modelled jointly with TabPFN 8.0.0 using a pooled regressor on a `log1p` target; retransformation uses a pooled Duan smearing factor.
 - Candidate species require more than 15 valid modelling records.
 - Global projection uses a 0.25° grid and waters with `0 < depth <= 50 m`.
 - Projection constants are 12 h photoperiod, 2.5 g L-1 algal density and 24 h experimental duration.
